@@ -35,6 +35,8 @@ Tested on a Smart G800, Android 8.1, printer firmware V3.0.2.
 
 ## Printing
 
+Short version for integrations: [docs/printing-api.md](docs/printing-api.md).
+
 ### Plain text
 
 Anything published to `cmd/print` that isn't a JSON object prints as-is:
