@@ -22,8 +22,8 @@ android {
         applicationId = "dev.posbridge.g800"
         minSdk = 26
         targetSdk = 35
-        // CI sets these from the git tag (v1.2.3) and the run number.
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 3
+        // CI sets these from the git tag: v1.2.3 -> "1.2.3", 10203.
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 300
         versionName = System.getenv("VERSION_NAME") ?: "0.3.0"
     }
 

@@ -38,9 +38,13 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          VERSION_CODE: ${{ github.run_number }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION_NAME="${GITHUB_REF_NAME#v}"; fi
+          # v1.2.3 -> versionName 1.2.3, versionCode 10203 (must grow with every release)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            export VERSION_NAME="${GITHUB_REF_NAME#v}"
+            IFS=. read -r MA MI PA <<< "${VERSION_NAME%%-*}"
+            export VERSION_CODE=$(( 10#${MA:-0} * 10000 + 10#${MI:-0} * 100 + 10#${PA:-0} ))
+          fi
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease
           mkdir -p dist
