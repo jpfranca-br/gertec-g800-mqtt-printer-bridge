@@ -23,8 +23,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // CI sets these from the git tag: v1.2.3 -> "1.2.3", 10203.
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 300
-        versionName = System.getenv("VERSION_NAME") ?: "0.3.0"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 301
+        versionName = System.getenv("VERSION_NAME") ?: "0.3.1"
     }
 
     signingConfigs {
@@ -78,5 +78,7 @@ android {
 dependencies {
     implementation("com.hivemq:hivemq-mqtt-client:1.3.17")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // zxing-android-embedded uses ContextCompat at runtime but doesn't bring androidx.core itself.
+    implementation("androidx.core:core:1.13.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
 }
