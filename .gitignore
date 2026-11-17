@@ -1,0 +1,13 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+secrets.properties
+*.apk
+*.jks
+*.keystore
+.idea/
+*.iml
+__pycache__/
+# photos of test prints (local only)
+print_sample/

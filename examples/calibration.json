@@ -1,0 +1,17 @@
+{
+  "blocks": [
+    { "type": "text", "value": "CALIBRATION 2", "align": "center", "size": 40, "bold": true },
+    { "type": "text", "value": "left (default)" },
+    { "type": "text", "value": "center", "align": "center" },
+    { "type": "text", "value": "right", "align": "right" },
+    { "type": "text", "value": "bold: Recibo ABC 123", "bold": true },
+    { "type": "text", "value": "italic: Recibo ABC 123", "italic": true },
+    { "type": "text", "value": "sans: Recibo ABC 123", "font": "sans" },
+    { "type": "text", "value": "wide: ABC 123", "wide": true },
+    { "type": "text", "value": "TOTAL  R$ 42,90", "align": "center", "size": 36, "bold": true, "reverse": true },
+    { "type": "text", "value": "Acentuação: ção ã é ü ñ €", "align": "center" },
+    { "type": "qrcode", "value": "https://example.com" },
+    { "type": "barcode", "value": "123456789012" },
+    { "type": "feed", "lines": 4 }
+  ]
+}

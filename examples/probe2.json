@@ -1,0 +1,95 @@
+{
+  "blocks": [
+    {
+      "type": "text",
+      "value": "PROBE 2",
+      "align": "center",
+      "size": 32
+    },
+    {
+      "type": "text",
+      "value": "plain: Recibo ABC 123"
+    },
+    {
+      "type": "text",
+      "value": "typeface 0: Recibo ABC 123",
+      "attributes": {
+        "key_attributes_typeface": 0
+      }
+    },
+    {
+      "type": "text",
+      "value": "typeface 1: Recibo ABC 123",
+      "attributes": {
+        "key_attributes_typeface": 1
+      }
+    },
+    {
+      "type": "text",
+      "value": "typeface 2: Recibo ABC 123",
+      "attributes": {
+        "key_attributes_typeface": 2
+      }
+    },
+    {
+      "type": "text",
+      "value": "typeface 3: Recibo ABC 123",
+      "attributes": {
+        "key_attributes_typeface": 3
+      }
+    },
+    {
+      "type": "text",
+      "value": "doublestrike 1: Recibo ABC 123",
+      "attributes": {
+        "key_attributes_doublestrike": 1
+      }
+    },
+    {
+      "type": "text",
+      "value": "doublestrike 2: Recibo ABC 123",
+      "attributes": {
+        "key_attributes_doublestrike": 2
+      }
+    },
+    {
+      "type": "text",
+      "value": "textscalex 2: Recibo ABC 123",
+      "attributes": {
+        "key_attributes_textscalex": 2
+      }
+    },
+    {
+      "type": "text",
+      "value": "QR center 240:",
+      "align": "center"
+    },
+    {
+      "type": "qrcode",
+      "value": "https://example.com"
+    },
+    {
+      "type": "text",
+      "value": "BAR center 320x80:",
+      "align": "center"
+    },
+    {
+      "type": "barcode",
+      "value": "123456789012"
+    },
+    {
+      "type": "text",
+      "value": "BAR flag=true:",
+      "align": "center"
+    },
+    {
+      "type": "barcode",
+      "value": "123456789012",
+      "flag": true
+    },
+    {
+      "type": "feed",
+      "lines": 4
+    }
+  ]
+}
