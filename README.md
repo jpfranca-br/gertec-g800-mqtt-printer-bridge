@@ -70,14 +70,16 @@ mosquitto_pub -t pos/<serial>/cmd/print -m "Hello from the shell"
 | `line` | `style` dashed (default) / solid / dotted / double; `thickness` px (default 2) |
 | `qrcode` | `value`; `align` (default center); `size` px (default 240, max 384) |
 | `barcode` | `value`; `align` (default center); `width`, `height` px (default 320×80) |
-| `image` | `base64` (PNG/JPEG); scaled to fit 384 px |
+| `image` | `base64` (PNG/JPEG); `align` (default center); `width` max dots (default 384); `dither` (default true: Floyd–Steinberg, good for photos and colour; false: plain threshold for line art); `threshold` 1–255 (default 128) |
 | `escpos` | `base64` or `hex`: ESC/POS bytes translated into the blocks above |
 | `raw` | `base64` or `hex`: bytes sent unchanged to the printer |
 | `feed` | `lines` (default 3) |
 | any | `attributes`: `{ "key_attributes_…": int }` passed straight to the printer service |
 
 Paper is 58 mm = 384 dots wide. UTF-8 text, including Portuguese accents, prints correctly.
-`columns` and `line` are drawn by the app and printed as images.
+`columns` and `line` are drawn by the app and printed as images. Images are converted to black and
+white by the app (transparency becomes white); see [examples/dither-test.png](examples/dither-test.png)
+for a greyscale test card.
 
 ### Templates
 
@@ -214,6 +216,7 @@ topic read homeassistant/status
 python tools/mqtt.py sub --seconds 30                    # watch status/state/results
 python tools/mqtt.py test                                # print the test receipt
 python tools/mqtt.py job examples/calibration.json       # send a job and wait for its result
+python tools/mqtt.py image logo.png --width 240          # print a PNG/JPEG (--no-dither, --align, --threshold)
 python tools/mqtt.py pub pos/<serial>/cmd/escpos @examples/escpos-sample.bin
 ```
 

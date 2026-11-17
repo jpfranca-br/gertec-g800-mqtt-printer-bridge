@@ -17,7 +17,7 @@ import org.json.JSONObject
  *         // font "sans", wide (double width), underline, reverse (white on black)
  *     { "type": "qrcode", "value": "https://...", "align": "center", "size": 240 },
  *     { "type": "barcode", "value": "123456", "align": "center", "width": 320, "height": 80 },
- *     { "type": "image", "base64": "<png/jpg>" },
+ *     { "type": "image", "base64": "<png/jpg>", "align": "center", "width": 384, "dither": true },
  *     { "type": "raw", "base64": "<bytes>" }      // or "hex": "1b40..." — sent unchanged to the printer
  *     { "type": "escpos", "base64": "<ESC/POS>" } // or "hex" — parsed into the blocks above (see EscPos)
  *     { "type": "columns", "cols": ["Coffee", "2", "8,50"], "widths": [3, 1, 1],
@@ -66,7 +66,15 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
                 b.optInt("height", 80).coerceIn(8, 400),
                 b.optBoolean("flag", false),
             )
-            "image" -> p.bitmap(decodeImage(b.getString("base64"), b.optInt("width", PrinterClient.PAPER_WIDTH_DOTS)))
+            "image" -> p.bitmap(
+                decodeImage(
+                    b.getString("base64"),
+                    maxWidth = b.optInt("width", PrinterClient.PAPER_WIDTH_DOTS),
+                    align = alignCode(b, "center"),
+                    dither = b.optBoolean("dither", true),
+                    threshold = b.optInt("threshold", 128).coerceIn(1, 255),
+                )
+            )
             "raw" -> p.raw(bytes(b))
             "escpos" -> {
                 val inner = EscPos.toBlocks(bytes(b))
@@ -119,19 +127,54 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
         else -> 1
     }
 
-    private fun decodeImage(b64: String, maxWidth: Int): Bitmap {
+    /**
+     * Decodes a PNG/JPEG, flattens transparency onto white, scales it to fit [maxWidth] (and the
+     * paper), converts it to pure black/white — Floyd–Steinberg dithering for photos and colour, or a
+     * plain threshold — and places it on a full-width canvas according to [align].
+     */
+    private fun decodeImage(b64: String, maxWidth: Int, align: Int, dither: Boolean, threshold: Int): Bitmap {
         val bytes = Base64.decode(b64, Base64.DEFAULT)
         val src = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             ?: throw IllegalArgumentException("could not decode image")
-        val w = minOf(src.width, maxWidth, PrinterClient.PAPER_WIDTH_DOTS)
+        val paper = PrinterClient.PAPER_WIDTH_DOTS
+        val w = minOf(src.width, maxWidth.coerceAtLeast(8), paper)
         val h = (src.height.toLong() * w / src.width).toInt().coerceAtLeast(1)
-        // Flatten transparency onto white, then scale to fit the paper.
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        Canvas(out).apply {
+
+        val scaled = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        Canvas(scaled).apply {
             drawColor(Color.WHITE)
             drawBitmap(Bitmap.createScaledBitmap(src, w, h, true), 0f, 0f, null)
         }
-        return out
+        val px = IntArray(w * h).also { scaled.getPixels(it, 0, w, 0, 0, w, h) }
+
+        // Luminance (ITU-R BT.601), then error diffusion or threshold.
+        val lum = FloatArray(w * h) { i ->
+            val c = px[i]
+            0.299f * Color.red(c) + 0.587f * Color.green(c) + 0.114f * Color.blue(c)
+        }
+        val out = IntArray(w * h)
+        for (y in 0 until h) for (x in 0 until w) {
+            val i = y * w + x
+            val old = lum[i]
+            val black = old < threshold
+            out[i] = if (black) Color.BLACK else Color.WHITE
+            if (dither) {
+                val err = old - (if (black) 0f else 255f)
+                if (x + 1 < w) lum[i + 1] += err * 7 / 16
+                if (y + 1 < h) {
+                    if (x > 0) lum[i + w - 1] += err * 3 / 16
+                    lum[i + w] += err * 5 / 16
+                    if (x + 1 < w) lum[i + w + 1] += err * 1 / 16
+                }
+            }
+        }
+
+        // Full paper width so alignment doesn't depend on the printer service.
+        val canvas = Bitmap.createBitmap(paper, h, Bitmap.Config.ARGB_8888)
+        canvas.eraseColor(Color.WHITE)
+        val left = when (align) { 0 -> (paper - w) / 2; 2 -> paper - w; else -> 0 }
+        canvas.setPixels(out, 0, w, left, 0, w, h)
+        return canvas
     }
 
     private fun bytes(b: JSONObject): ByteArray = when {

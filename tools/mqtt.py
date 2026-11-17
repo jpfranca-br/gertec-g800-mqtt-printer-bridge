@@ -9,8 +9,10 @@ The device id is device.id from secrets.properties, else the serial of the POS a
   python tools/mqtt.py pub TOPIC PAYLOAD [--retain]   # PAYLOAD may be @file.json
   python tools/mqtt.py job FILE.json|-  [--timeout N] # send to cmd/print, wait for evt/print
   python tools/mqtt.py test                           # ask the POS to print its test receipt
+  python tools/mqtt.py image logo.png [--width 240] [--align left] [--no-dither] [--threshold 128]
 """
 import argparse
+import base64
 import json
 import os
 import socket
@@ -140,6 +142,14 @@ def main():
     p = sp.add_parser("pub"); p.add_argument("topic"); p.add_argument("payload"); p.add_argument("--retain", action="store_true")
     j = sp.add_parser("job"); j.add_argument("file"); j.add_argument("--timeout", type=float, default=60)
     sp.add_parser("test")
+    im = sp.add_parser("image", help="print a PNG/JPEG")
+    im.add_argument("file")
+    im.add_argument("--width", type=int, help="max width in dots (paper is 384)")
+    im.add_argument("--align", choices=["left", "center", "right"], default="center")
+    im.add_argument("--no-dither", action="store_true", help="plain threshold instead of dithering (logos, line art)")
+    im.add_argument("--threshold", type=int, help="black/white cut-off 1-255 (default 128)")
+    im.add_argument("--feed", type=int, default=3, help="blank lines after the image")
+    im.add_argument("--timeout", type=float, default=60)
     a = ap.parse_args()
     if a.cmd != "pub":
         PREFIX = f"{CFG.get('topic.root', 'pos')}/{a.device or device_id(CFG)}"
@@ -155,9 +165,20 @@ def main():
             m.publish(a.topic, data, a.retain)
             time.sleep(0.5)
             print("published")
-        elif a.cmd in ("job", "test"):
-            if a.cmd == "job":
-                job = json.load(sys.stdin if a.file == "-" else open(a.file, encoding="utf-8"))
+        elif a.cmd in ("job", "test", "image"):
+            if a.cmd in ("job", "image"):
+                if a.cmd == "job":
+                    job = json.load(sys.stdin if a.file == "-" else open(a.file, encoding="utf-8"))
+                else:
+                    with open(a.file, "rb") as f:
+                        block = {"type": "image", "base64": base64.b64encode(f.read()).decode(), "align": a.align}
+                    if a.width:
+                        block["width"] = a.width
+                    if a.no_dither:
+                        block["dither"] = False
+                    if a.threshold:
+                        block["threshold"] = a.threshold
+                    job = {"blocks": [block] + ([{"type": "feed", "lines": a.feed}] if a.feed > 0 else [])}
                 job.setdefault("id", uuid.uuid4().hex[:12])
                 topic, payload, want, timeout = f"{PREFIX}/cmd/print", json.dumps(job).encode(), job["id"], a.timeout
             else:
