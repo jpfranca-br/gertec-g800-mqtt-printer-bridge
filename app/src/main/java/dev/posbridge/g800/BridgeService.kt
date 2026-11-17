@@ -43,10 +43,16 @@ import javax.net.ssl.TrustManagerFactory
  * Topics (prefix = <topic_root>/<device_id>, device_id defaults to the serial number):
  *   prefix/status       retained  "online" | "offline" (last will)
  *   prefix/state        retained  JSON: paper, temperature, battery, wifi, ip, versions, counters
- *   prefix/cmd/print    in        print job JSON (see PrintJob)
- *   prefix/cmd/test     in        prints a built-in test receipt
- *   prefix/cmd/state    in        republish state now
- *   prefix/evt/print    out       {"id", "ok", "error", "ms"} — also sent to the MQTT 5 response topic if set
+ *   prefix/cmd/print            in   print job JSON (see PrintJob), or plain text
+ *   prefix/cmd/escpos           in   raw ESC/POS bytes, translated by EscPos
+ *   prefix/cmd/test             in   prints a built-in test receipt
+ *   prefix/cmd/state            in   republish state now
+ *   prefix/cmd/template/set     in   {"name", "blocks"} store a template
+ *   prefix/cmd/template/delete  in   {"name"} or the bare name
+ *   prefix/evt/print            out  {"id", "ok", "error", "ms"} — also sent to the MQTT 5 response topic if set
+ *   prefix/evt/template         out  {"name", "ok", "error"}
+ *   prefix/templates            out  retained JSON array of stored template names
+ * Plus Home Assistant discovery under <ha_prefix>/…/pos/… (see HaDiscovery).
  */
 class BridgeService : Service() {
 
@@ -62,6 +68,7 @@ class BridgeService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var seen: SeenJobs
+    private lateinit var templates: TemplateStore
 
     private val prefix get() = config?.prefix ?: "?"
 
@@ -71,6 +78,7 @@ class BridgeService : Service() {
         super.onCreate()
         startInForeground("Starting…")
         seen = SeenJobs(this)
+        templates = TemplateStore(this)
         printer = PrinterClient(this).also { it.bind() }
 
         val cfg = try {
@@ -93,7 +101,7 @@ class BridgeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_TEST_PRINT -> enqueue(PrintJob.testReceipt(config?.deviceId ?: "?", ipAddress()), null)
+            ACTION_TEST_PRINT -> enqueue(null) { testJob() }
         }
         return START_STICKY
     }
@@ -185,20 +193,72 @@ class BridgeService : Service() {
                 }
             }
         publish("$prefix/status", "online", retain = true)
+        publishTemplateList()
+        config?.takeIf { it.haDiscovery }?.let { cfg ->
+            // Republish discovery whenever Home Assistant restarts (its birth message).
+            mqtt?.subscribeWith()?.topicFilter("${cfg.haPrefix}/status")?.qos(MqttQos.AT_LEAST_ONCE)?.send()
+                ?.whenComplete { _, err -> if (err != null) Log.w(TAG, "cannot subscribe to ${cfg.haPrefix}/status: ${err.message}") }
+            publishDiscovery(cfg)
+        }
         scheduler.execute { publishState() }
+    }
+
+    private fun publishDiscovery(cfg: BridgeConfig) {
+        HaDiscovery.messages(cfg).forEach { (topic, payload) -> publish(topic, payload, retain = true) }
+    }
+
+    private fun publishTemplateList() {
+        publish("$prefix/templates", JSONArray(templates.names()).toString(), retain = true)
     }
 
     private fun onMessage(p: Mqtt5Publish) {
         val topic = p.topic.toString()
-        val payload = String(p.payloadAsBytes, Charsets.UTF_8)
-        Log.i(TAG, "rx $topic (${payload.length} bytes)")
+        val bytes = p.payloadAsBytes
+        val payload = String(bytes, Charsets.UTF_8)
+        Log.i(TAG, "rx $topic (${bytes.size} bytes)")
+        val cfg = config ?: return
+        if (cfg.haDiscovery && topic == "${cfg.haPrefix}/status") {
+            if (payload == "online") publishDiscovery(cfg)
+            return
+        }
         when (topic.removePrefix("$prefix/cmd/")) {
-            "print" -> enqueue(payload, p)
-            "test" -> enqueue(PrintJob.testReceipt(config?.deviceId ?: "?", ipAddress()), p)
+            "print" -> enqueue(p) { PrintJob.parse(payload, newId(), templates) }
+            "escpos" -> enqueue(p) { PrintJob.escpos(bytes, newId()) }
+            "test" -> enqueue(p) { testJob() }
             "state" -> scheduler.execute { publishState() }
+            "template/set" -> templateCommand(p) {
+                val o = JSONObject(payload)
+                val name = o.getString("name")
+                templates.put(name, o.getJSONArray("blocks"))
+                name
+            }
+            "template/delete" -> templateCommand(p) {
+                val name = if (payload.trim().startsWith("{")) JSONObject(payload).getString("name") else payload.trim()
+                require(templates.delete(name)) { "no template '$name'" }
+                name
+            }
             else -> Log.w(TAG, "ignoring unknown command topic $topic")
         }
     }
+
+    private fun templateCommand(request: Mqtt5Publish, op: () -> String) {
+        val result = JSONObject()
+        try {
+            result.put("name", op()).put("ok", true)
+            publishTemplateList()
+        } catch (e: Exception) {
+            result.put("ok", false).put("error", e.message ?: e.javaClass.simpleName)
+        }
+        val body = result.toString()
+        publish("$prefix/evt/template", body, request = request)
+        request.responseTopic.ifPresent { publish(it.toString(), body, request = request) }
+    }
+
+    private fun newId() = UUID.randomUUID().toString()
+
+    private fun testJob() = PrintJob.parse(
+        PrintJob.testReceipt(config?.deviceId ?: "?", ipAddress()), newId(), templates,
+    )
 
     private fun publish(topic: String, payload: String, retain: Boolean = false, request: Mqtt5Publish? = null) {
         val client = mqtt ?: return
@@ -210,9 +270,9 @@ class BridgeService : Service() {
 
     // ---------------------------------------------------------------- jobs
 
-    private fun enqueue(json: String, request: Mqtt5Publish?) {
+    private fun enqueue(request: Mqtt5Publish?, make: () -> PrintJob) {
         val job = try {
-            PrintJob.parse(json, UUID.randomUUID().toString())
+            make()
         } catch (e: Exception) {
             reply(request, JSONObject().put("ok", false).put("error", "invalid job: ${e.message}"))
             return
@@ -376,6 +436,12 @@ class BridgeService : Service() {
 
         fun start(context: Context, action: String? = null) {
             context.startForegroundService(Intent(context, BridgeService::class.java).setAction(action))
+        }
+
+        /** Restarts the service so it reloads its config. */
+        fun restart(context: Context) {
+            context.stopService(Intent(context, BridgeService::class.java))
+            Handler(Looper.getMainLooper()).postDelayed({ start(context) }, 500)
         }
     }
 }

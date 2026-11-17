@@ -18,9 +18,16 @@ import org.json.JSONObject
  *     { "type": "qrcode", "value": "https://...", "align": "center", "size": 240 },
  *     { "type": "barcode", "value": "123456", "align": "center", "width": 320, "height": 80 },
  *     { "type": "image", "base64": "<png/jpg>" },
- *     { "type": "raw", "base64": "<ESC/POS bytes>" }   // or "hex": "1b40..."
+ *     { "type": "raw", "base64": "<bytes>" }      // or "hex": "1b40..." — sent unchanged to the printer
+ *     { "type": "escpos", "base64": "<ESC/POS>" } // or "hex" — parsed into the blocks above (see EscPos)
+ *     { "type": "columns", "cols": ["Coffee", "2", "8,50"], "widths": [3, 1, 1],
+ *       "align": ["left", "center", "right"], "size": 24, "bold": false }
+ *     { "type": "line", "style": "dashed", "thickness": 2 }   // dashed | solid | dotted | double
  *     { "type": "feed", "lines": 3 }
  * ]}
+ *
+ * Or { "id", "template": "name", "vars": {...} } to print a stored template (see Templates);
+ * "vars" with inline "blocks" also fills placeholders.
  *
  * Every block also accepts "attributes": { "key_attributes_xxx": <int> } passed straight to the
  * printer service, for formatting options not mapped below.
@@ -60,13 +67,26 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
                 b.optBoolean("flag", false),
             )
             "image" -> p.bitmap(decodeImage(b.getString("base64"), b.optInt("width", PrinterClient.PAPER_WIDTH_DOTS)))
-            "raw" -> p.raw(
-                when {
-                    b.has("base64") -> Base64.decode(b.getString("base64"), Base64.DEFAULT)
-                    b.has("hex") -> hexToBytes(b.getString("hex"))
-                    else -> throw IllegalArgumentException("raw block needs base64 or hex")
+            "raw" -> p.raw(bytes(b))
+            "escpos" -> {
+                val inner = EscPos.toBlocks(bytes(b))
+                for (k in 0 until inner.length()) runBlock(p, inner.getJSONObject(k))
+            }
+            "columns" -> {
+                val cols = b.getJSONArray("cols").let { a -> List(a.length()) { a.optString(it) } }
+                require(cols.isNotEmpty()) { "columns block needs at least one column" }
+                val weights = b.optJSONArray("widths")
+                    ?.let { a -> List(cols.size) { a.optDouble(it, 1.0).toFloat() } } ?: List(cols.size) { 1f }
+                val aligns = List(cols.size) { k ->
+                    when (b.optJSONArray("align")?.optString(k) ?: if (k == 0) "left" else "right") {
+                        "center" -> TextRender.Align.CENTER
+                        "right" -> TextRender.Align.RIGHT
+                        else -> TextRender.Align.LEFT
+                    }
                 }
-            )
+                p.bitmap(TextRender.columns(cols, weights, aligns, b.optInt("size", 24).toFloat(), b.optBoolean("bold")))
+            }
+            "line" -> p.bitmap(TextRender.rule(b.optString("style", "dashed"), b.optInt("thickness", 2)))
             "feed" -> p.feed(b.optInt("lines", 3))
             else -> throw IllegalArgumentException("unknown block type '$type'")
         }
@@ -114,6 +134,12 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
         return out
     }
 
+    private fun bytes(b: JSONObject): ByteArray = when {
+        b.has("base64") -> Base64.decode(b.getString("base64"), Base64.DEFAULT)
+        b.has("hex") -> hexToBytes(b.getString("hex"))
+        else -> throw IllegalArgumentException("${b.optString("type")} block needs base64 or hex")
+    }
+
     private fun hexToBytes(hex: String): ByteArray {
         val clean = hex.filter { !it.isWhitespace() }
         require(clean.length % 2 == 0) { "hex string has odd length" }
@@ -121,17 +147,37 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
     }
 
     companion object {
-        fun parse(json: String, fallbackId: String): PrintJob {
-            val o = JSONObject(json)
-            return PrintJob(o.optString("id").ifEmpty { fallbackId }, o.getJSONArray("blocks"))
+        /**
+         * Parses an MQTT print payload: a JSON job (inline blocks or a stored template), or — when
+         * the payload is not a JSON object — plain text printed as-is.
+         */
+        fun parse(payload: String, fallbackId: String, templates: TemplateStore): PrintJob {
+            val trimmed = payload.trim()
+            if (!trimmed.startsWith("{")) return plainText(payload, fallbackId)
+            val o = JSONObject(trimmed)
+            val id = o.optString("id").ifEmpty { fallbackId }
+            val vars = o.optJSONObject("vars")
+            var blocks = if (o.has("template")) {
+                val name = o.getString("template")
+                templates.get(name) ?: throw IllegalArgumentException("unknown template '$name'")
+            } else {
+                o.getJSONArray("blocks")
+            }
+            if (vars != null || o.has("template")) blocks = Templates.expand(blocks, vars ?: JSONObject())
+            return PrintJob(id, blocks)
         }
+
+        fun plainText(text: String, id: String) =
+            PrintJob(id, JSONArray().put(JSONObject().put("type", "text").put("value", text.trimEnd())))
+
+        fun escpos(data: ByteArray, id: String) = PrintJob(id, EscPos.toBlocks(data))
 
         fun testReceipt(deviceId: String, ip: String?): String = JSONObject().apply {
             put("id", "test-" + System.currentTimeMillis())
             put("blocks", JSONArray().apply {
                 put(JSONObject(mapOf("type" to "text", "value" to "G800 BRIDGE", "align" to "center", "size" to 36, "bold" to true)))
                 put(JSONObject(mapOf("type" to "text", "value" to "Test print", "align" to "center")))
-                put(JSONObject(mapOf("type" to "text", "value" to "--------------------------------")))
+                put(JSONObject(mapOf("type" to "line")))
                 put(JSONObject(mapOf("type" to "text", "value" to "Device: $deviceId")))
                 put(JSONObject(mapOf("type" to "text", "value" to "IP: ${ip ?: "?"}")))
                 put(JSONObject(mapOf("type" to "text", "value" to "Time: ${java.util.Date()}")))

@@ -37,6 +37,21 @@ def broker(props):
     return u.hostname, u.port or (8883 if tls else 1883), tls
 
 
+def build_config(props):
+    """config.json contents (as used by the app) from secrets.properties; validates the URL."""
+    broker(props)
+    if props.get("mqtt.password", "") == "CHANGE_ME":
+        raise SystemExit("mqtt.password is still CHANGE_ME")
+    cfg = {"url": props["mqtt.url"], "topic_root": props.get("topic.root", "pos")}
+    for prop, key in (("mqtt.user", "username"), ("mqtt.password", "password"),
+                      ("device.id", "device_id"), ("ha.prefix", "ha_prefix"), ("settings.pin", "settings_pin")):
+        if props.get(prop):
+            cfg[key] = props[prop]
+    if props.get("ha.discovery"):
+        cfg["ha_discovery"] = props["ha.discovery"].strip().lower() in ("1", "true", "yes", "on")
+    return cfg
+
+
 def adb_exe():
     exe = shutil.which("adb") or r"D:\platform-tools\adb.exe"
     if not os.path.exists(exe) and not shutil.which(exe):

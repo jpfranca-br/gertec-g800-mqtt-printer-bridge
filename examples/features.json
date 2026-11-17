@@ -1,0 +1,17 @@
+{
+  "blocks": [
+    { "type": "text", "value": "FEATURES 1", "align": "center", "size": 36, "bold": true },
+    { "type": "line" },
+    { "type": "text", "value": "columns (3/1/1, left/center/right):" },
+    { "type": "columns", "cols": ["Item", "Qty", "Price"], "widths": [3, 1, 1.4], "align": ["left", "center", "right"], "bold": true },
+    { "type": "columns", "cols": ["Café expresso", "2", "17,00"], "widths": [3, 1, 1.4], "align": ["left", "center", "right"] },
+    { "type": "columns", "cols": ["Pão de queijo com requeijão cremoso", "1", "9,50"], "widths": [3, 1, 1.4], "align": ["left", "center", "right"] },
+    { "type": "columns", "cols": ["TOTAL", "R$ 26,50"], "size": 30, "bold": true },
+    { "type": "text", "value": "line styles: dashed / solid / dotted / double" },
+    { "type": "line", "style": "dashed" },
+    { "type": "line", "style": "solid" },
+    { "type": "line", "style": "dotted" },
+    { "type": "line", "style": "double" },
+    { "type": "feed", "lines": 2 }
+  ]
+}

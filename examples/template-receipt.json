@@ -1,0 +1,15 @@
+{
+  "name": "receipt",
+  "blocks": [
+    { "type": "text", "value": "{{shop}}", "align": "center", "size": 36, "bold": true },
+    { "type": "text", "value": "Order #{{order}} - {{date}}", "align": "center" },
+    { "type": "line" },
+    { "type": "each", "items": "lines", "blocks": [
+      { "type": "columns", "cols": ["{{index}}. {{name}}", "{{qty}}", "{{price}}"], "widths": [3, 1, 1.4], "align": ["left", "center", "right"] }
+    ]},
+    { "type": "line" },
+    { "type": "columns", "cols": ["TOTAL", "R$ {{total}}"], "size": 30, "bold": true },
+    { "type": "qrcode", "value": "{{url}}", "size": 200 },
+    { "type": "feed", "lines": 3 }
+  ]
+}

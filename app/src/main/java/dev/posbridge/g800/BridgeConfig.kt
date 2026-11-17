@@ -21,9 +21,14 @@ class ConfigException(message: String) : Exception(message)
  *     "username": "pos",                          // optional
  *     "password": "secret",                       // optional
  *     "topic_root": "pos",                        // optional, default "pos"
- *     "device_id": "..."                          // optional, default = device serial number
+ *     "device_id": "...",                         // optional, default = device serial number
+ *     "ha_discovery": true,                       // optional, Home Assistant MQTT discovery (default true)
+ *     "ha_prefix": "homeassistant",               // optional, discovery prefix
+ *     "settings_pin": "1234"                      // optional, PIN required to open the settings screen
  *   }
  *   /sdcard/Android/data/dev.posbridge.g800/files/ca.pem   // optional extra trusted CA(s)
+ *
+ * The same JSON can be entered on the device: Settings screen, typed or scanned from a QR code.
  *
  * On start the app moves these files into its private storage and deletes the pushed copies,
  * because /sdcard is readable by other apps on Android 8.1.
@@ -37,6 +42,9 @@ data class BridgeConfig(
     val topicRoot: String,
     val deviceId: String,
     val customCa: File?,
+    val haDiscovery: Boolean,
+    val haPrefix: String,
+    val settingsPin: String?,
 ) {
     val prefix get() = "$topicRoot/$deviceId"
     val url get() = "${if (tls) "mqtts" else "mqtt"}://$host:$port"
@@ -89,7 +97,32 @@ data class BridgeConfig(
                 topicRoot = o.optString("topic_root").ifBlank { "pos" }.trimEnd('/'),
                 deviceId = deviceId,
                 customCa = File(context.filesDir, CA).takeIf { it.exists() },
+                haDiscovery = o.optBoolean("ha_discovery", true),
+                haPrefix = o.optString("ha_prefix").ifBlank { "homeassistant" }.trimEnd('/'),
+                settingsPin = o.optString("settings_pin").ifBlank { null },
             )
+        }
+
+        /** The stored config.json as JSON (empty object if none), e.g. to pre-fill the settings screen. */
+        fun raw(context: Context): JSONObject {
+            val f = File(context.filesDir, CONFIG)
+            return runCatching { JSONObject(f.readText()) }.getOrDefault(JSONObject())
+        }
+
+        /** Validates and stores a config (from the settings screen or a scanned QR code). */
+        fun save(context: Context, json: JSONObject) {
+            val f = File(context.filesDir, CONFIG)
+            val backup = if (f.exists()) f.readText() else null
+            f.writeText(json.toString())
+            try {
+                load(context)
+            } catch (e: ConfigException) {
+                // The serial number may be unavailable on a fresh install; anything else is a real error.
+                if (!e.message.orEmpty().startsWith("Serial number")) {
+                    if (backup != null) f.writeText(backup) else f.delete()
+                    throw e
+                }
+            }
         }
 
         @SuppressLint("MissingPermission", "HardwareIds")

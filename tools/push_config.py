@@ -18,7 +18,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import PACKAGE, adb, broker, load_props  # noqa: E402
+from common import PACKAGE, adb, broker, build_config, load_props  # noqa: E402
 
 REMOTE_DIR = f"/sdcard/Android/data/{PACKAGE}/files"
 
@@ -30,14 +30,8 @@ def main():
     a = ap.parse_args()
 
     props = load_props(a.props) if a.props else load_props()
-    host, port, tls = broker(props)  # validates the URL
-    if props.get("mqtt.password", "") == "CHANGE_ME":
-        raise SystemExit("mqtt.password is still CHANGE_ME")
-
-    cfg = {"url": props["mqtt.url"], "topic_root": props.get("topic.root", "pos")}
-    for prop, key in (("mqtt.user", "username"), ("mqtt.password", "password"), ("device.id", "device_id")):
-        if props.get(prop):
-            cfg[key] = props[prop]
+    host, port, tls = broker(props)
+    cfg = build_config(props)
 
     ca = props.get("ca.file")
     if ca and not os.path.exists(ca):

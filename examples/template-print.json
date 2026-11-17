@@ -1,0 +1,14 @@
+{
+  "template": "receipt",
+  "vars": {
+    "shop": "PADARIA EXEMPLO",
+    "order": 1042,
+    "date": "17/11/2026 17:30",
+    "lines": [
+      { "name": "Café expresso", "qty": 2, "price": "17,00" },
+      { "name": "Pão de queijo", "qty": 3, "price": "13,50" }
+    ],
+    "total": "30,50",
+    "url": "https://example.com/o/1042"
+  }
+}

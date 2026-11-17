@@ -38,6 +38,10 @@ class MainActivity : Activity() {
             addView(status)
             addView(info)
             addView(test)
+            addView(Button(context).apply {
+                text = "Settings"
+                setOnClickListener { startActivity(android.content.Intent(this@MainActivity, SettingsActivity::class.java)) }
+            })
         })
 
         // The device id defaults to the serial number, which needs READ_PHONE_STATE.

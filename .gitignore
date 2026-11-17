@@ -11,3 +11,7 @@ secrets.properties
 __pycache__/
 # photos of test prints (local only)
 print_sample/
+# release signing (local only - back these up!)
+keystore.properties
+github-secrets.txt
+config-qr.svg
