@@ -132,3 +132,7 @@ app/src/main/java/dev/posbridge/g800/
 tools/                  PC-side tools (push_config.py, mqtt.py)
 examples/               sample jobs
 ```
+
+## License
+
+[MIT](LICENSE)
