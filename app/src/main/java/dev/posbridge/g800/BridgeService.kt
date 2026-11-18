@@ -30,7 +30,9 @@ import org.json.JSONObject
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.HttpsURLConnection
@@ -284,29 +286,84 @@ class BridgeService : Service() {
             return
         }
         queued.incrementAndGet()
-        jobs.execute {
-            val t0 = SystemClock.elapsedRealtime()
-            val result = JSONObject().put("id", job.id)
-            try {
-                setStatus("Printing ${job.id}…")
-                job.cacheDir = cacheDir
-                job.run(printer)
-                printed.incrementAndGet()
-                result.put("ok", true)
-            } catch (e: Exception) {
-                failed.incrementAndGet()
-                Log.e(TAG, "job ${job.id} failed", e)
-                result.put("ok", false).put("error", e.message ?: e.javaClass.simpleName)
-                if (e is PrinterException) result.put("code", e.code)
-            } finally {
-                queued.decrementAndGet()
+        jobs.execute { runJob(job, request, reprinted = false) }
+    }
+
+    /** A job cancelled because the paper ran out, printed again from the start when paper is back. */
+    private class Pending(val job: PrintJob, val request: Mqtt5Publish?)
+    private val pending = ConcurrentLinkedQueue<Pending>()
+    @Volatile private var paperWatch: ScheduledFuture<*>? = null
+
+    private fun runJob(job: PrintJob, request: Mqtt5Publish?, reprinted: Boolean) {
+        val t0 = SystemClock.elapsedRealtime()
+        val result = JSONObject().put("id", job.id)
+        if (reprinted) result.put("reprint", true)
+        try {
+            setStatus("Printing ${job.id}…")
+            // Keep the order: while earlier jobs wait for paper, newer ones wait behind them.
+            if (!reprinted && pending.isNotEmpty()) throw PaperOutException()
+            // No paper: fail before sending anything, so nothing half-prints later.
+            if (printer.hasPaper() == false) throw PaperOutException()
+            job.cacheDir = cacheDir
+            job.run(printer)
+            printed.incrementAndGet()
+            result.put("ok", true)
+        } catch (e: PaperOutException) {
+            failed.incrementAndGet()
+            Log.w(TAG, "job ${job.id}: ${e.message}" + (e.during?.let { " (at $it)" } ?: ""))
+            // Throw away what the printer service still holds, or it prints on the new paper.
+            if (e.during != null) printer.cancelQueued()
+            result.put("ok", false).put("error", e.message).put("code", e.code).put("paper_out", true)
+                .put("printed_partially", e.during != null)
+            val expired = System.currentTimeMillis() - job.createdAt > REPRINT_MAX_AGE_MS
+            if (job.reprint && !expired && pending.size < MAX_PENDING) {
+                pending.add(Pending(job, request))
+                result.put("reprint_pending", true)
             }
-            job.info.keys().forEach { k -> result.put(k, job.info.get(k)) }
-            result.put("ms", SystemClock.elapsedRealtime() - t0)
-            reply(request, result)
-            val outcome = if (result.getBoolean("ok")) "ok" else result.optString("error")
-            setStatus("${if (mqtt?.state?.isConnected == true) "Online" else "Offline"} — last job ${job.id}: $outcome")
-            publishState()
+            startPaperWatch()
+        } catch (e: Exception) {
+            failed.incrementAndGet()
+            Log.e(TAG, "job ${job.id} failed", e)
+            result.put("ok", false).put("error", e.message ?: e.javaClass.simpleName)
+            if (e is PrinterException) result.put("code", e.code)
+        } finally {
+            queued.decrementAndGet()
+        }
+        job.info.keys().forEach { k -> result.put(k, job.info.get(k)) }
+        result.put("ms", SystemClock.elapsedRealtime() - t0)
+        reply(request, result)
+        val outcome = when {
+            result.getBoolean("ok") -> "ok"
+            result.optBoolean("reprint_pending") -> "no paper — will print when paper is loaded"
+            else -> result.optString("error")
+        }
+        setStatus("${if (mqtt?.state?.isConnected == true) "Online" else "Offline"} — last job ${job.id}: $outcome")
+        publishState()
+    }
+
+    /** Polls the paper sensor every few seconds while it's out; on return, reprints held jobs in order. */
+    private fun startPaperWatch() {
+        if (paperWatch?.isDone == false) return
+        paperWatch = scheduler.scheduleWithFixedDelay({
+            try {
+                checkPaperBack()
+            } catch (e: Exception) {
+                Log.w(TAG, "paper watch", e)
+            }
+        }, PAPER_POLL_S, PAPER_POLL_S, TimeUnit.SECONDS)
+    }
+
+    private fun checkPaperBack() {
+        if (printer.hasPaper() != true) return
+        paperWatch?.cancel(false)
+        publishState()  // Home Assistant sees the paper back right away
+        if (pending.isEmpty()) return
+        Thread.sleep(1500)  // give the user time to close the lid
+        val batch = generateSequence { pending.poll() }.toList()
+        Log.i(TAG, "paper is back: reprinting ${batch.size} job(s)")
+        batch.forEach { p ->
+            queued.incrementAndGet()
+            jobs.execute { runJob(p.job, p.request, reprinted = true) }
         }
     }
 
@@ -333,6 +390,7 @@ class BridgeService : Service() {
             .put("wifi_rssi", wifi.connectionInfo?.rssi ?: JSONObject.NULL)
             .put("ip", ipAddress() ?: JSONObject.NULL)
             .put("queue", queued.get())
+            .put("waiting_for_paper", pending.size)
             .put("printed", printed.get())
             .put("failed", failed.get())
             .put("app_version", BuildConfig.VERSION_NAME)
@@ -434,6 +492,10 @@ class BridgeService : Service() {
         private const val CHANNEL = "bridge"
         private const val NOTIF_ID = 1
         private const val SESSION_EXPIRY_S = 24L * 3600
+        private const val PAPER_POLL_S = 3L
+        /** Jobs waiting for paper longer than this are dropped instead of reprinted. */
+        private const val REPRINT_MAX_AGE_MS = 60L * 60 * 1000
+        private const val MAX_PENDING = 20
         const val ACTION_TEST_PRINT = "dev.posbridge.g800.TEST_PRINT"
 
         fun start(context: Context, action: String? = null) {

@@ -13,7 +13,11 @@ import com.xcheng.printerservice.IPrinterService
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-class PrinterException(val code: Int, message: String) : Exception(message)
+open class PrinterException(val code: Int, message: String) : Exception(message)
+
+/** The printer has no paper: before the job ([during] = null) or while printing a given call. */
+class PaperOutException(val during: String? = null) :
+    PrinterException(-2, if (during == null) "out of paper" else "paper ran out while printing")
 
 /**
  * Thin wrapper around the G800's built-in printer service (com.xcheng.printerservice).
@@ -68,7 +72,26 @@ class PrinterClient(private val context: Context) {
         op(svc(), cb)
         val ms = SystemClock.elapsedRealtime() - t0
         if (ms > SLOW_CALL_MS) Log.w(TAG, "$name took $ms ms to return") else Log.d(TAG, "$name returned in $ms ms")
-        if (timeoutMs > 0) cb.await(timeoutMs)
+        if (timeoutMs <= 0) return
+        val completed = try {
+            cb.await(timeoutMs)
+        } catch (e: PrinterException) {
+            // An error callback may just mean "no paper": report that specifically.
+            if (hasPaper() == false) throw PaperOutException(name)
+            throw e
+        }
+        // Silence usually means the paper ran out: the service then holds the rest of the job until paper
+        // is loaded. Detect it so the job can be cancelled instead of reported as printed.
+        if (!completed && hasPaper() == false) throw PaperOutException(name)
+    }
+
+    /**
+     * Discards whatever the printer service still has queued (after a paper-out), so it doesn't print
+     * half a job on the new paper, and re-initialises it.
+     */
+    fun cancelQueued() {
+        runCatching { reset() }.onFailure { Log.w(TAG, "printerReset failed", it) }
+        runCatching { init() }
     }
 
     // printerInit / printerReset never call back on this firmware.
@@ -111,12 +134,12 @@ class PrinterClient(private val context: Context) {
         override fun onStart() {}
         override fun onComplete() = latch.countDown()
 
-        /** A missing callback is logged, not fatal (the job continues); errors are thrown. */
-        fun await(timeoutMs: Long) {
-            if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-                Log.w(TAG, "$name: no callback within $timeoutMs ms, continuing")
-            }
+        /** Returns false if no callback arrived in time (logged, not fatal by itself); errors are thrown. */
+        fun await(timeoutMs: Long): Boolean {
+            val ok = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            if (!ok) Log.w(TAG, "$name: no callback within $timeoutMs ms")
             error?.let { throw it }
+            return ok
         }
     }
 

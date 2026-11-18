@@ -29,7 +29,10 @@ import org.json.JSONObject
  * Every block also accepts "attributes": { "key_attributes_xxx": <int> } passed straight to the
  * printer service, for formatting options not mapped below.
  */
-class PrintJob(val id: String, private val blocks: JSONArray) {
+class PrintJob(val id: String, private val blocks: JSONArray, val reprint: Boolean = true) {
+
+    /** When the job first arrived (reprints keep it, so old jobs can expire). */
+    val createdAt: Long = System.currentTimeMillis()
 
     /** Extra facts for the result message (e.g. PDF page counts). */
     val info = JSONObject()
@@ -43,6 +46,8 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
             val b = blocks.getJSONObject(i)
             try {
                 runBlock(printer, b)
+            } catch (e: PaperOutException) {
+                throw e
             } catch (e: PrinterException) {
                 throw PrinterException(e.code, "block $i (${b.optString("type")}): ${e.message}")
             }
@@ -201,7 +206,7 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
                 o.getJSONArray("blocks")
             }
             if (vars != null || o.has("template")) blocks = Templates.expand(blocks, vars ?: JSONObject())
-            return PrintJob(id, blocks)
+            return PrintJob(id, blocks, o.optBoolean("reprint", true))
         }
 
         fun plainText(text: String, id: String) =

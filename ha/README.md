@@ -90,7 +90,8 @@ box (with a confirmation above 3 pages); images are shrunk in the browser and di
 Files up to 2 MB (`max_mb` option). The "Printed ✓" confirmation listens on `evt/print`, which needs an
 **admin** user; other users see "Sent".
 
-After updating the card file, change `?v=` in the resource URL so browsers load the new version.
+After updating the card file, change `?v=` in the resource URL (e.g. `?v=1.1.0`) so browsers load the new version.
+Card 1.1.0 explains out-of-paper results ("it will print automatically when paper is loaded").
 
 ## 4. Dashboard tab
 

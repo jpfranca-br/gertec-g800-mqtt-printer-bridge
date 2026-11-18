@@ -42,6 +42,8 @@ python tools/mqtt.py job examples/calibration.json   # or: test | image FILE | s
 - `key_attributes_textscalex` 2 = double width; `textsize` in px (default ≈24 → ~27 chars/line)
 - `printQRCode(data, align, sizePx)`; `printBarCode(data, align, widthPx, heightPx, flag)` (flag: no visible effect)
 - `printerInit`/`printerReset` never call back; others: `onStart`, `onComplete`, `onLength`
+- Without paper, print calls get **no callback** (the service holds the data and prints it when paper returns);
+  `printerPaper()` reports it live. `printerReset` discards the held data (tested: no fragments after reload).
 - `getFirmwareVersion` returns garbage right after a print (cached once valid)
 - To learn a parameter's meaning: print a labelled probe sheet and ask the user for a photo (`print_sample/`, git-ignored).
 

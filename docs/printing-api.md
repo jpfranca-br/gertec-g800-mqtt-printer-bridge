@@ -61,7 +61,7 @@ item names can contain quotes.
 
 | Topic | Content |
 |---|---|
-| `<root>/<id>/evt/print` | `{"id", "ok": true/false, "error", "ms"}` after each job |
+| `<root>/<id>/evt/print` | `{"id", "ok": true/false, "error", "ms"}` after each job; out of paper adds `paper_out: true` and `reprint_pending: true` (the job prints by itself once paper is loaded, reported again with `reprint: true`) |
 | `<root>/<id>/status` | `online` / `offline` (retained) |
 | `<root>/<id>/state` | JSON incl. `paper` (true = has paper), `battery`, `printed`, `failed` (retained) |
 

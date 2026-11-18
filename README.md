@@ -8,7 +8,7 @@ POS software.
 - **Any payload:** plain text, JSON blocks (text, columns, lines, QR, barcode, image), files (PDF, images, text), templates with variables and loops, or ESC/POS
 - **Home Assistant:** appears automatically via MQTT discovery (sensors, a test button, a `notify` entity that prints)
 - **MQTT 5 with a persistent session:** jobs sent while the terminal is off are delivered when it reconnects
-- **Reliable:** jobs are de-duplicated by `id`; retained `online`/`offline` status (last will) and device state
+- **Reliable:** jobs are de-duplicated by `id`; out of paper → the job is cancelled (no half-prints on the new roll) and reprinted automatically when paper is loaded; retained `online`/`offline` status (last will) and device state
 - **Any broker:** `mqtts://` or `mqtt://`; trusts Android's CAs, Let's Encrypt and an optional custom CA
 - **No rebuild per broker or device:** configure with `adb`, on-screen, or by scanning a QR code; the device ID is the serial number
 - **Starts on boot**, runs as a foreground service; no vendor SDK needed
@@ -30,7 +30,7 @@ Tested on a Smart G800, Android 8.1, printer firmware V3.0.2.
 | `…/cmd/state` | to POS | no | anything: republish `state` now |
 | `…/cmd/template/set` | to POS | no | `{"name": "…", "blocks": [ … ]}` |
 | `…/cmd/template/delete` | to POS | no | `{"name": "…"}` or just the name |
-| `…/evt/print` | from POS | no | `{"id", "ok", "error", "code", "ms"}`; also sent to the MQTT 5 response topic if the request set one |
+| `…/evt/print` | from POS | no | `{"id", "ok", "error", "code", "ms"}` (+ `paper_out`, `printed_partially`, `reprint_pending`, `reprint`; see below); also sent to the MQTT 5 response topic if the request set one |
 | `…/evt/template` | from POS | no | `{"name", "ok", "error"}` |
 
 ## Printing
@@ -64,6 +64,19 @@ mosquitto_pub -t pos/<serial>/cmd/print -m "Hello from the shell"
 ```
 
 `id` is optional (one is generated), but set it if you want duplicate protection.
+
+### Out of paper
+
+- **No paper when a job arrives:** it fails at once (`"error": "out of paper"`, `"paper_out": true`) and
+  nothing is sent to the printer.
+- **Paper runs out mid-job:** the app stops, discards what the printer still has queued (so no
+  half-job prints on the new roll) and reports `"printed_partially": true`.
+- In both cases the job is held (`"reprint_pending": true`) and **printed again from the start** as soon
+  as paper is loaded (checked every 3 s), in order; its result comes again on `evt/print` with
+  `"reprint": true`. Jobs arriving meanwhile queue behind it. Held jobs expire after 60 minutes
+  (at most 20 are held). Set `"reprint": false` in a job to just fail instead.
+- The `state` message is republished immediately (Home Assistant's *Paper out* sensor reacts within
+  seconds) and includes `waiting_for_paper`.
 
 | Block | Options |
 |---|---|

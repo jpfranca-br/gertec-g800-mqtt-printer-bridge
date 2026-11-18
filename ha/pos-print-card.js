@@ -17,7 +17,7 @@
  * the browser; PDFs are rendered on the POS. Sends with mqtt.publish to <topic_root>/<serial>/cmd/print.
  */
 const PAPER_DOTS = 384;
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 class PosPrintCard extends HTMLElement {
   setConfig(config) {
@@ -282,6 +282,12 @@ class PosPrintCard extends HTMLElement {
       } else if (r.ok) {
         const pages = r.pages_printed != null ? ` · ${r.pages_printed} of ${r.pages_total} page(s)` : "";
         this._status(`Printed on ${p.name}${pages} ✓`, "ok");
+      } else if (r.paper_out) {
+        const partial = r.printed_partially ? " The paper ran out while printing; the rest was cancelled." : "";
+        const later = r.reprint_pending
+          ? " It will print automatically, from the start, as soon as paper is loaded."
+          : "";
+        this._status(`${p.name} is out of paper.${partial}${later}`, "err");
       } else {
         this._status(`${p.name} reported an error: ${r.error || "unknown"}`, "err");
       }
