@@ -104,11 +104,16 @@ class Mqtt:
         """Yields (topic, payload, retained) until `seconds` elapse."""
         end = time.time() + seconds
         while (left := end - time.time()) > 0:
-            self.sock.settimeout(left)
+            # Wait at most 30 s at a time and ping in between: the broker drops a client that stays
+            # silent for 1.5× its 60 s keep-alive.
+            self.sock.settimeout(min(left, 30))
             try:
                 h, b = self.read()
             except (socket.timeout, TimeoutError):
-                return
+                if end - time.time() <= 0:
+                    return
+                self._send(0xC0, b"")  # PINGREQ
+                continue
             if h >> 4 != 3:
                 continue
             tl = struct.unpack("!H", b[:2])[0]
