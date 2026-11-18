@@ -23,8 +23,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // CI sets these from the git tag: v1.2.3 -> "1.2.3", 10203.
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 301
-        versionName = System.getenv("VERSION_NAME") ?: "0.3.1"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 400
+        versionName = System.getenv("VERSION_NAME") ?: "0.4.0"
     }
 
     signingConfigs {
