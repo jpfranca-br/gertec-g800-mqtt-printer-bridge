@@ -1,0 +1,3 @@
+Plain text file
+Linha 2: acentuação ç ã é
+Line 3 is a much longer line that should wrap on the narrow receipt paper.

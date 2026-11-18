@@ -5,7 +5,7 @@ prints what it receives: plain text, JSON layouts, stored templates or ESC/POS b
 can publish MQTT can print receipts on the terminal: Home Assistant, Node-RED, scripts, existing
 POS software.
 
-- **Any payload:** plain text, JSON blocks (text, columns, lines, QR, barcode, image), templates with variables and loops, or ESC/POS
+- **Any payload:** plain text, JSON blocks (text, columns, lines, QR, barcode, image), files (PDF, images, text), templates with variables and loops, or ESC/POS
 - **Home Assistant:** appears automatically via MQTT discovery (sensors, a test button, a `notify` entity that prints)
 - **MQTT 5 with a persistent session:** jobs sent while the terminal is off are delivered when it reconnects
 - **Reliable:** jobs are de-duplicated by `id`; retained `online`/`offline` status (last will) and device state
@@ -73,6 +73,7 @@ mosquitto_pub -t pos/<serial>/cmd/print -m "Hello from the shell"
 | `qrcode` | `value`; `align` (default center); `size` px (default 240, max 384) |
 | `barcode` | `value`; `align` (default center); `width`, `height` px (default 320×80) |
 | `image` | `base64` (PNG/JPEG); `align` (default center); `width` max dots (default 384); `dither` (default true: Floyd–Steinberg, good for photos and colour; false: plain threshold for line art); `threshold` 1–255 (default 128) |
+| `file` | `base64`; `name`; PDFs: `pages` ("1-3,5", default all), `max_pages` (default 20), `trim` margins (default true), `separator` between pages (default true); also `dither`, `width`, `align`. PDFs are rendered on the POS and fitted to the paper; images print like `image`; text files print as text. The result message adds `kind`, `pages_total`, `pages_printed`. |
 | `escpos` | `base64` or `hex`: ESC/POS bytes translated into the blocks above |
 | `raw` | `base64` or `hex`: bytes sent unchanged to the printer |
 | `feed` | `lines` (default 3) |
@@ -137,6 +138,29 @@ target:
 data:
   message: "Front door opened at {{ now().strftime('%H:%M') }}"
 ```
+
+### Print-a-file card
+
+[`ha/pos-print-card.js`](ha/pos-print-card.js) is a dashboard card for uploading a PDF, photo/image or
+text file and printing it: printer selector with ready/offline/no-paper state, page range for PDFs,
+dither option, and the POS's result. Images are shrunk to the paper width in the browser; files up to
+2 MB (Home Assistant messages are limited to about 4 MB).
+
+1. Copy it to `www/pos-print-card.js` in the Home Assistant config folder (shown as `homeassistant`
+   in the File editor add-on; create `www` if needed and restart Home Assistant once).
+2. **Settings → Dashboards → ⋮ → Resources → Add resource**: `/local/pos-print-card.js?v=1.0.0`,
+   *JavaScript module* (needs Advanced mode in your user profile).
+3. Add the card:
+   ```yaml
+   type: custom:pos-print-card
+   title: Print a file
+   printers:
+     - name: POS 1
+       serial: "<serial>"     # quoted
+   ```
+
+The result confirmation listens on `evt/print` and needs an admin user; others see "Sent".
+Full A4 pages become very small on 58 mm paper: receipts, labels, tickets and photos work best.
 
 Discovery topics are `homeassistant/<component>/pos/<serial>_<key>/config`. The terminal republishes
 them when Home Assistant restarts (`homeassistant/status` = `online`).
@@ -219,6 +243,7 @@ python tools/mqtt.py sub --seconds 30                    # watch status/state/re
 python tools/mqtt.py test                                # print the test receipt
 python tools/mqtt.py job examples/calibration.json       # send a job and wait for its result
 python tools/mqtt.py image logo.png --width 240          # print a PNG/JPEG (--no-dither, --align, --threshold)
+python tools/mqtt.py file document.pdf --pages 1-2       # PDF, image or text file, rendered on the POS
 python tools/mqtt.py pub pos/<serial>/cmd/escpos @examples/escpos-sample.bin
 ```
 
@@ -277,6 +302,8 @@ app/src/main/java/dev/posbridge/g800/
     BridgeService.kt    foreground service: MQTT, job queue, state, templates, de-duplication
     BridgeConfig.kt     runtime config (pushed, typed or scanned; serial number)
     PrintJob.kt         JSON blocks → printer calls
+    Raster.kt           bitmaps → dithered black/white strips
+    FileRender.kt       file type detection, PDF rendering and margin trimming
     TextRender.kt       columns and rules drawn as bitmaps
     Templates.kt        template storage, placeholders and loops
     EscPos.kt           ESC/POS → blocks
@@ -285,8 +312,9 @@ app/src/main/java/dev/posbridge/g800/
     MainActivity.kt     status screen
     SettingsActivity.kt on-device settings and QR scan
     BootReceiver.kt     start on boot / after update
+ha/                     Home Assistant print-a-file card
 tools/                  PC-side tools (push_config.py, config_qr.py, mqtt.py)
-examples/               sample jobs, template, ESC/POS file
+examples/               sample jobs, template, ESC/POS file, sample PDF and text
 .github/workflows/      release build
 ```
 

@@ -289,6 +289,7 @@ class BridgeService : Service() {
             val result = JSONObject().put("id", job.id)
             try {
                 setStatus("Printing ${job.id}…")
+                job.cacheDir = cacheDir
                 job.run(printer)
                 printed.incrementAndGet()
                 result.put("ok", true)
@@ -300,6 +301,7 @@ class BridgeService : Service() {
             } finally {
                 queued.decrementAndGet()
             }
+            job.info.keys().forEach { k -> result.put(k, job.info.get(k)) }
             result.put("ms", SystemClock.elapsedRealtime() - t0)
             reply(request, result)
             val outcome = if (result.getBoolean("ok")) "ok" else result.optString("error")

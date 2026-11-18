@@ -1,9 +1,6 @@
 package dev.posbridge.g800
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,6 +30,12 @@ import org.json.JSONObject
  * printer service, for formatting options not mapped below.
  */
 class PrintJob(val id: String, private val blocks: JSONArray) {
+
+    /** Extra facts for the result message (e.g. PDF page counts). */
+    val info = JSONObject()
+
+    /** Where temporary files (PDFs being rendered) go; set by the service. */
+    var cacheDir: java.io.File? = null
 
     fun run(printer: PrinterClient) {
         printer.init()
@@ -66,15 +69,8 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
                 b.optInt("height", 80).coerceIn(8, 400),
                 b.optBoolean("flag", false),
             )
-            "image" -> p.bitmap(
-                decodeImage(
-                    b.getString("base64"),
-                    maxWidth = b.optInt("width", PrinterClient.PAPER_WIDTH_DOTS),
-                    align = alignCode(b, "center"),
-                    dither = b.optBoolean("dither", true),
-                    threshold = b.optInt("threshold", 128).coerceIn(1, 255),
-                )
-            )
+            "image" -> printBitmap(p, b, FileRender.image(bytes(b)), upscale = false)
+            "file" -> printFile(p, b)
             "raw" -> p.raw(bytes(b))
             "escpos" -> {
                 val inner = EscPos.toBlocks(bytes(b))
@@ -127,54 +123,52 @@ class PrintJob(val id: String, private val blocks: JSONArray) {
         else -> 1
     }
 
+    /** Converts [src] to black/white and prints it in strips. */
+    private fun printBitmap(p: PrinterClient, b: JSONObject, src: Bitmap, upscale: Boolean) {
+        val printable = Raster.toPrintable(
+            src,
+            width = b.optInt("width", PrinterClient.PAPER_WIDTH_DOTS),
+            align = alignCode(b, "center"),
+            dither = b.optBoolean("dither", true),
+            threshold = b.optInt("threshold", 128).coerceIn(1, 255),
+            upscale = upscale,
+        )
+        Raster.strips(printable).forEach { p.bitmap(it) }
+    }
+
     /**
-     * Decodes a PNG/JPEG, flattens transparency onto white, scales it to fit [maxWidth] (and the
-     * paper), converts it to pure black/white — Floyd–Steinberg dithering for photos and colour, or a
-     * plain threshold — and places it on a full-width canvas according to [align].
+     * { "type": "file", "base64": "...", "name": "doc.pdf", "pages": "1-3", "max_pages": 20,
+     *   "trim": true, "dither": true, "separator": true }
+     * PDF pages are rendered, trimmed of white margins and fitted to the paper width; images print
+     * like an image block; text files print as text.
      */
-    private fun decodeImage(b64: String, maxWidth: Int, align: Int, dither: Boolean, threshold: Int): Bitmap {
-        val bytes = Base64.decode(b64, Base64.DEFAULT)
-        val src = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            ?: throw IllegalArgumentException("could not decode image")
-        val paper = PrinterClient.PAPER_WIDTH_DOTS
-        val w = minOf(src.width, maxWidth.coerceAtLeast(8), paper)
-        val h = (src.height.toLong() * w / src.width).toInt().coerceAtLeast(1)
-
-        val scaled = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        Canvas(scaled).apply {
-            drawColor(Color.WHITE)
-            drawBitmap(Bitmap.createScaledBitmap(src, w, h, true), 0f, 0f, null)
-        }
-        val px = IntArray(w * h).also { scaled.getPixels(it, 0, w, 0, 0, w, h) }
-
-        // Luminance (ITU-R BT.601), then error diffusion or threshold.
-        val lum = FloatArray(w * h) { i ->
-            val c = px[i]
-            0.299f * Color.red(c) + 0.587f * Color.green(c) + 0.114f * Color.blue(c)
-        }
-        val out = IntArray(w * h)
-        for (y in 0 until h) for (x in 0 until w) {
-            val i = y * w + x
-            val old = lum[i]
-            val black = old < threshold
-            out[i] = if (black) Color.BLACK else Color.WHITE
-            if (dither) {
-                val err = old - (if (black) 0f else 255f)
-                if (x + 1 < w) lum[i + 1] += err * 7 / 16
-                if (y + 1 < h) {
-                    if (x > 0) lum[i + w - 1] += err * 3 / 16
-                    lum[i + w] += err * 5 / 16
-                    if (x + 1 < w) lum[i + w + 1] += err * 1 / 16
+    private fun printFile(p: PrinterClient, b: JSONObject) {
+        val data = bytes(b)
+        val name = b.optString("name")
+        when (FileRender.kind(data)) {
+            FileRender.Kind.IMAGE -> { info.put("kind", "image"); printBitmap(p, b, FileRender.image(data), upscale = false) }
+            FileRender.Kind.TEXT -> {
+                info.put("kind", "text")
+                val t = FileRender.text(data).trimEnd()
+                p.text(t + "\n", textAttributes(b))
+            }
+            FileRender.Kind.PDF -> {
+                info.put("kind", "pdf")
+                var printedPages = 0
+                val dir = cacheDir ?: throw IllegalStateException("no cache directory")
+                val count = FileRender.pdf(
+                    data, b.optString("pages").ifBlank { null }, b.optInt("max_pages", 20), dir, b.optBoolean("trim", true),
+                ) { _, page ->
+                    if (printedPages > 0 && b.optBoolean("separator", true)) {
+                        p.bitmap(TextRender.rule("dashed", 2))
+                    }
+                    printBitmap(p, b, page, upscale = true)
+                    printedPages++
                 }
+                info.put("pages_total", count).put("pages_printed", printedPages)
             }
         }
-
-        // Full paper width so alignment doesn't depend on the printer service.
-        val canvas = Bitmap.createBitmap(paper, h, Bitmap.Config.ARGB_8888)
-        canvas.eraseColor(Color.WHITE)
-        val left = when (align) { 0 -> (paper - w) / 2; 2 -> paper - w; else -> 0 }
-        canvas.setPixels(out, 0, w, left, 0, w, h)
-        return canvas
+        if (name.isNotEmpty()) info.put("name", name)
     }
 
     private fun bytes(b: JSONObject): ByteArray = when {

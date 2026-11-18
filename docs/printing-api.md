@@ -46,6 +46,7 @@ item names can contain quotes.
 | `qrcode` | `value`; `size` px (default 240, max 384); `align` |
 | `barcode` | `value`; `width`, `height` px (default 320×80); `align` |
 | `image` | `base64` PNG/JPEG; `width`; `align`; `dither` (default true) |
+| `file` | `base64` of a PDF, image or text file; `name`; `pages` ("1-3", default all) and `max_pages` (default 20) for PDFs. Rendered on the POS. |
 | `feed` | `lines` (default 3). End every job with one so the paper can be torn off. |
 
 ## Paper and text
@@ -84,6 +85,8 @@ Check `online` and `paper_out` before printing if the result matters.
   ]
 }
 ```
+
+Uploading files from a dashboard: see the print-a-file card in the README (`ha/pos-print-card.js`).
 
 Templates stored on the terminal (`cmd/template/set`, then `{"template": "name", "vars": {...}}`) are
 an alternative when the same layout is printed often; see the README.

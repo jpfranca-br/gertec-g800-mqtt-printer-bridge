@@ -13,9 +13,10 @@ Private, machine-specific facts: `CLAUDE.local.md` (git-ignored) — read it bef
   - `BridgeService` — foreground service: MQTT, topic routing, job queue (single thread), state, de-dup, HA discovery
   - `PrintJob` — JSON blocks → `PrinterClient` calls; plain-text and template entry points
   - `PrinterClient` — blocking wrapper around `IPrinterService`; waits for `onComplete`/`onException`
-  - `TextRender` (columns/rules as bitmaps), `Templates`, `EscPos`, `HaDiscovery`
+  - `TextRender` (columns/rules as bitmaps), `Raster` (dither + 256-row strips), `FileRender` (PDF/image/text), `Templates`, `EscPos`, `HaDiscovery`
   - `BridgeConfig` (runtime config.json), `SettingsActivity` (form, QR scan, PIN), `MainActivity`, `BootReceiver`
 - `tools/` — PC side, Python stdlib only (`config_qr.py` needs `qrcode`): `push_config.py`, `mqtt.py`, `config_qr.py`, `common.py`
+- `ha/pos-print-card.js` — Home Assistant print-a-file card (vanilla JS, no build step)
 - `examples/` — sample jobs; `.github/workflows/release.yml` — signed release on `v*` tags
 
 ## Build, install, test
@@ -47,7 +48,7 @@ python tools/mqtt.py job examples/calibration.json   # or: test | image FILE | s
 
 - The GitHub repo is **public**. Never commit secrets or personal details (broker host, serial, IPs, SSH aliases,
   passwords). Git-ignored: `secrets.properties`, `local.properties`, `keystore.properties`, `release.jks`,
-  `github-secrets.txt`, `config-qr.svg`, `print_sample/`, `logo.png`.
+  `github-secrets.txt`, `config-qr.svg`, `print_sample/`, `logo.png`, `ha-pos-dashboard.yaml`, `CLAUDE.local.md`.
 - Stage files **by name**; don't use `git add -A` (a stray local file once leaked a third-party logo).
 - Before pushing, grep the staged diff for private details.
 - Releases: bump the defaults in `app/build.gradle.kts` (`versionName`, `versionCode` = X*10000+Y*100+Z),

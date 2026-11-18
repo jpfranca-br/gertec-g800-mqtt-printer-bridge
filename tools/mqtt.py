@@ -10,6 +10,7 @@ The device id is device.id from secrets.properties, else the serial of the POS a
   python tools/mqtt.py job FILE.json|-  [--timeout N] # send to cmd/print, wait for evt/print
   python tools/mqtt.py test                           # ask the POS to print its test receipt
   python tools/mqtt.py image logo.png [--width 240] [--align left] [--no-dither] [--threshold 128]
+  python tools/mqtt.py file doc.pdf [--pages 1-2] [--no-trim]  # PDF, image or text file
 """
 import argparse
 import base64
@@ -150,6 +151,14 @@ def main():
     im.add_argument("--threshold", type=int, help="black/white cut-off 1-255 (default 128)")
     im.add_argument("--feed", type=int, default=3, help="blank lines after the image")
     im.add_argument("--timeout", type=float, default=60)
+    fl = sp.add_parser("file", help="print a PDF, image or text file (rendered on the POS)")
+    fl.add_argument("file")
+    fl.add_argument("--pages", help='PDF pages, e.g. "1-3,5" (default all)')
+    fl.add_argument("--max-pages", type=int, default=20)
+    fl.add_argument("--no-trim", action="store_true", help="keep PDF page margins")
+    fl.add_argument("--no-dither", action="store_true")
+    fl.add_argument("--feed", type=int, default=3)
+    fl.add_argument("--timeout", type=float, default=180)
     a = ap.parse_args()
     if a.cmd != "pub":
         PREFIX = f"{CFG.get('topic.root', 'pos')}/{a.device or device_id(CFG)}"
@@ -165,9 +174,20 @@ def main():
             m.publish(a.topic, data, a.retain)
             time.sleep(0.5)
             print("published")
-        elif a.cmd in ("job", "test", "image"):
-            if a.cmd in ("job", "image"):
-                if a.cmd == "job":
+        elif a.cmd in ("job", "test", "image", "file"):
+            if a.cmd in ("job", "image", "file"):
+                if a.cmd == "file":
+                    with open(a.file, "rb") as f:
+                        block = {"type": "file", "base64": base64.b64encode(f.read()).decode(),
+                                 "name": os.path.basename(a.file), "max_pages": a.max_pages}
+                    if a.pages:
+                        block["pages"] = a.pages
+                    if a.no_trim:
+                        block["trim"] = False
+                    if a.no_dither:
+                        block["dither"] = False
+                    job = {"blocks": [block] + ([{"type": "feed", "lines": a.feed}] if a.feed > 0 else [])}
+                elif a.cmd == "job":
                     job = json.load(sys.stdin if a.file == "-" else open(a.file, encoding="utf-8"))
                 else:
                     with open(a.file, "rb") as f:
