@@ -123,6 +123,9 @@ Text is decoded as UTF-8 when valid, otherwise with the selected code page (defa
 
 ## Home Assistant
 
+**Ready-made examples:** [ha/](ha/README.md) has a dashboard tab, the print-a-file card, a
+shopping-list script (also by voice) and automation examples, with step-by-step instructions.
+
 With `ha_discovery` on (the default), the terminal publishes MQTT discovery messages and shows up as
 a device **POS &lt;serial&gt;** with:
 
@@ -312,7 +315,7 @@ app/src/main/java/dev/posbridge/g800/
     MainActivity.kt     status screen
     SettingsActivity.kt on-device settings and QR scan
     BootReceiver.kt     start on boot / after update
-ha/                     Home Assistant print-a-file card
+ha/                     Home Assistant examples: dashboard, print-a-file card, scripts, automations
 tools/                  PC-side tools (push_config.py, config_qr.py, mqtt.py)
 examples/               sample jobs, template, ESC/POS file, sample PDF and text
 .github/workflows/      release build

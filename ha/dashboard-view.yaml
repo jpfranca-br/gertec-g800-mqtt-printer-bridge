@@ -1,0 +1,134 @@
+# Example dashboard view for one or two G800 POS terminals (Home Assistant "sections" view).
+# Replace <serial1> / <serial2> with your terminals' serial numbers (the device id in the topics),
+# remove the second section if you have one terminal, and paste it as a new view:
+#   dashboard → pencil → + (add view) → ⋮ → Edit in YAML.
+# The "Print a file" card needs ha/pos-print-card.js installed (see ha/README.md).
+# The "Shopping list" button needs script.print_shopping_list (ha/scripts/print_shopping_list.yaml).
+title: POS
+path: pos
+icon: mdi:printer-pos
+type: sections
+max_columns: 2
+sections:
+  - type: grid
+    cards:
+      - type: heading
+        heading: POS 1
+        heading_style: title
+        icon: mdi:printer-pos
+        badges:
+          - type: entity
+            entity: sensor.pos_<serial1>_ip_address
+            show_icon: false
+      - type: tile
+        entity: binary_sensor.pos_<serial1>_online
+        name: Online
+      - type: tile
+        entity: binary_sensor.pos_<serial1>_paper_out
+        name: Paper
+      - type: tile
+        entity: sensor.pos_<serial1>_battery
+        name: Battery
+      - type: tile
+        entity: binary_sensor.pos_<serial1>_charging
+        name: Charging
+      - type: tile
+        entity: sensor.pos_<serial1>_jobs_printed
+        name: Jobs printed
+      - type: tile
+        entity: sensor.pos_<serial1>_jobs_failed
+        name: Jobs failed
+      - type: tile
+        entity: sensor.pos_<serial1>_wi_fi_signal
+        name: Wi-Fi
+      - type: button
+        name: Test print
+        icon: mdi:receipt-text-check
+        show_state: false
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.pos_<serial1>_print_test_receipt
+          confirmation:
+            text: Print a test receipt on POS 1?
+      - type: button
+        name: Shopping list
+        icon: mdi:cart
+        show_state: false
+        tap_action:
+          action: perform-action
+          perform_action: script.turn_on
+          target:
+            entity_id: script.print_shopping_list
+          confirmation:
+            text: Print the shopping list?
+  - type: grid
+    cards:
+      - type: heading
+        heading: POS 2
+        heading_style: title
+        icon: mdi:printer-pos
+        badges:
+          - type: entity
+            entity: sensor.pos_<serial2>_ip_address
+            show_icon: false
+      - type: tile
+        entity: binary_sensor.pos_<serial2>_online
+        name: Online
+      - type: tile
+        entity: binary_sensor.pos_<serial2>_paper_out
+        name: Paper
+      - type: tile
+        entity: sensor.pos_<serial2>_battery
+        name: Battery
+      - type: tile
+        entity: binary_sensor.pos_<serial2>_charging
+        name: Charging
+      - type: tile
+        entity: sensor.pos_<serial2>_jobs_printed
+        name: Jobs printed
+      - type: tile
+        entity: sensor.pos_<serial2>_jobs_failed
+        name: Jobs failed
+      - type: tile
+        entity: sensor.pos_<serial2>_wi_fi_signal
+        name: Wi-Fi
+      - type: button
+        name: Test print
+        icon: mdi:receipt-text-check
+        show_state: false
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.pos_<serial2>_print_test_receipt
+          confirmation:
+            text: Print a test receipt on POS 2?
+  - type: grid
+    column_span: 2
+    cards:
+      - type: custom:pos-print-card
+        title: Print a file
+        printers:
+          - name: POS 1
+            serial: "<serial1>"
+          - name: POS 2
+            serial: "<serial2>"
+        grid_options:
+          columns: full
+  - type: grid
+    column_span: 2
+    cards:
+      - type: heading
+        heading: Battery (24 h)
+        heading_style: subtitle
+      - type: history-graph
+        hours_to_show: 24
+        grid_options:
+          columns: full
+        entities:
+          - entity: sensor.pos_<serial1>_battery
+            name: POS 1
+          - entity: sensor.pos_<serial2>_battery
+            name: POS 2

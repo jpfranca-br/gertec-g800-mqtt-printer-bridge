@@ -1,0 +1,208 @@
+# Home Assistant script: print the shopping list on a G800 POS (MQTT printer bridge).
+#
+# Paste it in Settings → Automations & scenes → Scripts → Add script → ⋮ → Edit in YAML, then:
+#   - replace every <serial> with the terminal's serial number (its device id);
+#   - todo.shopping_list is Home Assistant's built-in Shopping list; change it if you use another to-do list;
+#   - replace ai_task.<your_ai_task> with an AI Task entity (e.g. from the Anthropic, OpenAI or Google
+#     integrations) to group items by supermarket section, or delete the "ai_task.generate_data" step
+#     to print the list ungrouped (the rest of the script handles both).
+#
+# What it does:
+#   1. remembers the jobs printed/failed counters;
+#   2. asks the terminal for a fresh state (cmd/state) and reads "paper" from it within 4 s
+#      (the paper_out sensor can be up to 5 minutes old; it is the fallback);
+#   3. stops with {ok: false, message} if the terminal is offline or out of paper;
+#   4. reads the open to-do items and (optionally) asks AI Task to sort them into sections; every item
+#      is printed even if the AI drops or renames one (it goes under OTHER);
+#   5. publishes the receipt as a JSON job, waits up to 15 s for a counter to change, and returns
+#      {ok, message}.
+#
+# Voice: expose the script to Assist (Settings → Voice assistants → Expose) and add aliases such as
+# "print the shopping list". An LLM conversation agent calls it as a tool and reads the description,
+# so it says the returned message (the built-in non-LLM agent doesn't speak the response).
+# The 15 s wait keeps the answer within the ~30 s some voice agents allow.
+
+alias: Print shopping list
+description: >-
+  Prints the shopping list on the receipt printer (POS), grouped by supermarket section.
+  Returns {ok, message}: always tell the user the text of "message", especially when ok is
+  false (printer offline, out of paper or failed).
+icon: mdi:printer-pos
+mode: single
+sequence:
+  - variables:
+      p0: "{{ states('sensor.pos_<serial>_jobs_printed') }}"
+      f0: "{{ states('sensor.pos_<serial>_jobs_failed') }}"
+  - action: mqtt.publish
+    data:
+      topic: pos/<serial>/cmd/state
+      payload: ""
+  - wait_for_trigger:
+      - trigger: mqtt
+        topic: pos/<serial>/state
+        value_template: "{{ 'fresh' if (value_json.ts | int(0)) >= (now().timestamp() | int(0)) - 10 else 'old' }}"
+        payload: fresh
+    timeout: "00:00:04"
+    continue_on_timeout: true
+  - variables:
+      no_paper: |-
+        {%- set p = wait.trigger.payload_json.paper if (wait is defined and wait.trigger and wait.trigger.payload_json is defined) else none -%}
+        {{ (p == false) if p is boolean else is_state('binary_sensor.pos_<serial>_paper_out', 'on') }}
+  - if:
+      - condition: not
+        conditions:
+          - condition: state
+            entity_id: binary_sensor.pos_<serial>_online
+            state: "on"
+    then:
+      - variables:
+          result:
+            ok: false
+            message: "Not printed: the POS printer is off or not connected."
+      - stop: "Not printed: the POS printer is off or not connected."
+        response_variable: result
+  - if:
+      - condition: template
+        value_template: "{{ no_paper }}"
+    then:
+      - variables:
+          result:
+            ok: false
+            message: "Not printed: the POS printer is out of paper. Load paper and ask again."
+      - stop: "Not printed: the POS printer is out of paper. Load paper and ask again."
+        response_variable: result
+  - action: todo.get_items
+    target:
+      entity_id: todo.shopping_list
+    data:
+      status: needs_action
+    response_variable: shopping
+  - if:
+      - condition: template
+        value_template: "{{ shopping['todo.shopping_list']['items'] | count > 0 }}"
+    then:
+      - action: ai_task.generate_data
+        continue_on_error: true
+        response_variable: sections
+        data:
+          task_name: Shopping list sections
+          entity_id: ai_task.<your_ai_task>
+          instructions: |-
+            Put each item of this supermarket shopping list in exactly one section. Copy each item name exactly as written, without correcting or translating it. Every item must appear in exactly one section; use "other" when none fits.
+
+            Items:
+            {% for i in shopping['todo.shopping_list']['items'] %}- {{ i.summary }}
+            {% endfor %}
+          structure:
+            produce:
+              description: Fruit, vegetables, eggs
+              selector:
+                text:
+                  multiple: true
+            bakery:
+              description: Bread, cakes, bakery snacks
+              selector:
+                text:
+                  multiple: true
+            meat_deli:
+              description: Meat, poultry, fish, sausages, cold cuts
+              selector:
+                text:
+                  multiple: true
+            dairy:
+              description: Milk, yogurt, cheese, butter, cream
+              selector:
+                text:
+                  multiple: true
+            pantry:
+              description: Grains, flour, yeast, sugar, pasta, canned food, sauces, spices, oils, coffee, biscuits, sweets
+              selector:
+                text:
+                  multiple: true
+            frozen:
+              description: Frozen food and ice cream
+              selector:
+                text:
+                  multiple: true
+            drinks:
+              description: Water, juice, soft drinks, beer, wine
+              selector:
+                text:
+                  multiple: true
+            cleaning:
+              description: Cleaning products and supplies
+              selector:
+                text:
+                  multiple: true
+            personal_care:
+              description: Personal care and pharmacy
+              selector:
+                text:
+                  multiple: true
+            other:
+              description: Anything else
+              selector:
+                text:
+                  multiple: true
+  - action: mqtt.publish
+    data:
+      topic: pos/<serial>/cmd/print
+      payload: |-
+        {%- set items = shopping['todo.shopping_list']['items'] | map(attribute='summary') | list -%}
+        {%- set order = [
+          ['produce', 'PRODUCE'], ['bakery', 'BAKERY'], ['meat_deli', 'MEAT / DELI'],
+          ['dairy', 'DAIRY'], ['pantry', 'PANTRY'], ['frozen', 'FROZEN'],
+          ['drinks', 'DRINKS'], ['cleaning', 'CLEANING'], ['personal_care', 'PERSONAL CARE'], ['other', 'OTHER']] -%}
+        {%- set ai = sections.data if (sections is defined and sections is mapping and sections.data is defined and sections.data is mapping) else {} -%}
+        {%- set ns = namespace(b=[
+          {"type":"text","value":"SHOPPING LIST","align":"center","size":32,"bold":true},
+          {"type":"text","value":now().strftime('%d/%m/%Y %H:%M'),"align":"center"},
+          {"type":"line"}], pairs=[], k='other') -%}
+        {%- for it in items -%}
+          {%- set ns.k = 'other' -%}
+          {%- for o in order if ns.k == 'other' and o[0] != 'other' and o[0] in ai and ai[o[0]] is list
+                and (it | lower | trim) in (ai[o[0]] | map('string') | map('lower') | map('trim') | list) -%}
+            {%- set ns.k = o[0] -%}
+          {%- endfor -%}
+          {%- set ns.pairs = ns.pairs + [{"k": ns.k, "v": it}] -%}
+        {%- endfor -%}
+        {%- for o in order -%}
+          {%- set sec = ns.pairs | selectattr('k', 'eq', o[0]) | map(attribute='v') | list -%}
+          {%- if sec -%}
+            {%- if ai -%}
+              {%- set ns.b = ns.b + [{"type":"feed","lines":1}, {"type":"text","value":o[1],"bold":true}] -%}
+            {%- endif -%}
+            {%- for it in sec -%}
+              {%- set ns.b = ns.b + [{"type":"columns","cols":["[ ]", it],"widths":[1,6],"align":["left","left"]}] -%}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if items | count == 0 -%}
+          {%- set ns.b = ns.b + [{"type":"text","value":"(empty list)","align":"center"}] -%}
+        {%- endif -%}
+        {%- set n = items | count -%}
+        {%- set ns.b = ns.b + [{"type":"line"},
+            {"type":"text","value": n ~ (" item" if n == 1 else " items"),"align":"right"},
+            {"type":"feed","lines":3}] -%}
+        {{ {"blocks": ns.b} | to_json }}
+  - wait_template: "{{ states('sensor.pos_<serial>_jobs_printed') | int(-1) != p0 | int(-1) or states('sensor.pos_<serial>_jobs_failed') | int(-1) != f0 | int(-1) or is_state('binary_sensor.pos_<serial>_paper_out', 'on') }}"
+    timeout: "00:00:15"
+    continue_on_timeout: true
+  - variables:
+      result: |-
+        {%- set n = shopping['todo.shopping_list']['items'] | count -%}
+        {%- set d = sections.data if (sections is defined and sections is mapping and sections.data is defined and sections.data is mapping) else {} -%}
+        {%- set s = d.values() | select('list') | select | list | count -%}
+        {%- if is_state('binary_sensor.pos_<serial>_paper_out', 'on') -%}
+          {{ {"ok": false, "message": "The printer ran out of paper while printing. Load paper and ask again."} }}
+        {%- elif states('sensor.pos_<serial>_jobs_failed') | int(-1) != f0 | int(-1) -%}
+          {{ {"ok": false, "message": "The POS printer reported an error while printing the list."} }}
+        {%- elif states('sensor.pos_<serial>_jobs_printed') | int(-1) == p0 | int(-1) -%}
+          {{ {"ok": false, "message": "Sent the list to the printer, but it did not confirm printing within 15 seconds. Check the paper."} }}
+        {%- elif n == 0 -%}
+          {{ {"ok": true, "message": "The shopping list is empty; printed a receipt saying so."} }}
+        {%- else -%}
+          {{ {"ok": true, "message": "Shopping list printed: " ~ n ~ (" item" if n == 1 else " items") ~ ((" in " ~ s ~ (" section" if s == 1 else " sections")) if s else "") ~ "."} }}
+        {%- endif -%}
+  - stop: done
+    response_variable: result

@@ -21,3 +21,4 @@ image-job.json
 CLAUDE.local.md
 # Home Assistant dashboard view (contains device serials)
 ha-pos-dashboard.yaml
+ha/_private*

@@ -1,0 +1,68 @@
+# Example Home Assistant automations for a G800 POS running the MQTT printer bridge.
+# Replace <serial> with the terminal's serial number (its device id) and adapt the triggers.
+# Paste one at a time: Settings → Automations → Create → ⋮ → Edit in YAML.
+
+# 1. Print a short note when something happens (here: the front door opens).
+#    notify.send_message prints the message as plain text.
+- alias: "POS: print when the front door opens"
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.front_door        # <- your sensor
+      to: "on"
+  actions:
+    - action: notify.send_message
+      target:
+        entity_id: notify.pos_<serial>_print
+      data:
+        message: "Front door opened at {{ now().strftime('%H:%M') }}"
+  mode: queued
+
+# 2. Formatted receipt with mqtt.publish: a morning summary.
+#    Build the payload with to_json so quotes in values can't break the JSON.
+- alias: "POS: morning summary"
+  triggers:
+    - trigger: time
+      at: "07:30:00"
+  actions:
+    - action: mqtt.publish
+      data:
+        topic: pos/<serial>/cmd/print
+        payload: >-
+          {{ {"blocks": [
+               {"type": "text", "value": "GOOD MORNING", "align": "center", "size": 32, "bold": true},
+               {"type": "text", "value": now().strftime('%A %d/%m/%Y'), "align": "center"},
+               {"type": "line"},
+               {"type": "columns", "cols": ["Outside", states('sensor.outdoor_temperature') ~ " °C"]},
+               {"type": "columns", "cols": ["Forecast", states('weather.home')]},
+               {"type": "feed", "lines": 3}
+             ]} | to_json }}
+
+# 3. Tell your phone when the printer runs out of paper.
+- alias: "POS: paper out"
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.pos_<serial>_paper_out
+      to: "on"
+      for: "00:00:30"
+  actions:
+    - action: notify.mobile_app_your_phone        # <- your phone's notify service
+      data:
+        title: "POS printer"
+        message: "Out of paper"
+
+# 4. Print a QR code with the guest Wi-Fi when a button is pressed.
+- alias: "POS: print guest Wi-Fi QR"
+  triggers:
+    - trigger: state
+      entity_id: input_button.print_guest_wifi    # <- create this helper, or use any trigger
+  actions:
+    - action: mqtt.publish
+      data:
+        topic: pos/<serial>/cmd/print
+        payload: >-
+          {{ {"blocks": [
+               {"type": "text", "value": "Guest Wi-Fi", "align": "center", "size": 32, "bold": true},
+               {"type": "qrcode", "value": "WIFI:T:WPA;S:MyGuestNetwork;P:guest-password;;", "size": 260},
+               {"type": "text", "value": "MyGuestNetwork", "align": "center"},
+               {"type": "feed", "lines": 3}
+             ]} | to_json }}
