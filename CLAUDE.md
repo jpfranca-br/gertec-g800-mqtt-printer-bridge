@@ -14,7 +14,8 @@ Private, machine-specific facts: `CLAUDE.local.md` (git-ignored) — read it bef
   - `PrintJob` — JSON blocks → `PrinterClient` calls; plain-text and template entry points
   - `PrinterClient` — blocking wrapper around `IPrinterService`; waits for `onComplete`/`onException`
   - `TextRender` (columns/rules as bitmaps), `Raster` (dither + 256-row strips), `FileRender` (PDF/image/text), `Templates`, `EscPos`, `HaDiscovery`
-  - `BridgeConfig` (runtime config.json), `SettingsActivity` (form, QR scan, PIN), `MainActivity`, `BootReceiver`
+  - `BridgeConfig` (runtime config.json), `SettingsActivity` (form, QR scan, PIN, update check), `Updater`
+    (GitHub latest release → download → SHA-256 + signer check → system installer), `MainActivity`, `BootReceiver`
 - `tools/` — PC side, Python stdlib only (`config_qr.py` needs `qrcode`): `push_config.py`, `mqtt.py`, `config_qr.py`, `common.py`
 - `ha/pos-print-card.js` — Home Assistant print-a-file card (vanilla JS, no build step)
 - `examples/` — sample jobs; `.github/workflows/release.yml` — signed release on `v*` tags
@@ -51,6 +52,7 @@ python tools/mqtt.py job examples/calibration.json   # or: test | image FILE | s
   `github-secrets.txt`, `config-qr.svg`, `print_sample/`, `logo.png`, `ha-pos-dashboard.yaml`, `CLAUDE.local.md`.
 - Stage files **by name**; don't use `git add -A` (a stray local file once leaked a third-party logo).
 - Before pushing, grep the staged diff for private details.
+- Self-update only works between builds with the same signing key: debug builds can't take release APKs.
 - Releases: bump the defaults in `app/build.gradle.kts` (`versionName`, `versionCode` = X*10000+Y*100+Z),
   push, then tag `vX.Y.Z`; CI derives the version from the tag and signs with the repo secrets.
 - Broker access is restricted per user (Mosquitto ACL); a new topic outside `pos/#` or `homeassistant/+/pos/#`

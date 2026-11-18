@@ -252,6 +252,18 @@ python tools/mqtt.py pub pos/<serial>/cmd/escpos @examples/escpos-sample.bin
 
 See [examples/](examples/) for sample jobs, a template, and an ESC/POS file.
 
+## Updating from the terminal
+
+**Settings → Updates → Check for updates** asks GitHub for the latest release. If it's newer, the
+app downloads the APK, verifies its SHA-256 against the release's `SHA256SUMS.txt`, checks it's signed
+with the same key as the installed app, and opens Android's installer (tap Install; the app restarts
+by itself). The first time, Android asks you to allow *Install unknown apps* for G800 Bridge.
+
+- It only works when the installed app is a **release build** (same signing key). A terminal running a
+  self-built debug APK must be switched once: uninstall, install the release APK, push the config again.
+- The repository it checks can be changed with `"update_repo": "owner/name"` in `config.json`.
+- Android 8.1 doesn't allow silent installs for normal apps, so someone confirms each update on the device.
+
 ## Releases
 
 Pushing a tag `v*` runs [`.github/workflows/release.yml`](.github/workflows/release.yml): it builds a

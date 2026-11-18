@@ -77,8 +77,62 @@ class SettingsActivity : Activity() {
 
         form.addView(Button(this).apply { text = "Scan config QR code"; setOnClickListener { scan() } })
         form.addView(Button(this).apply { text = "Save and reconnect"; setOnClickListener { save() } })
+
+        form.addView(TextView(this).apply {
+            text = "Updates"; textSize = 18f; setPadding(0, pad * 2, 0, pad / 2)
+        })
+        val updateStatus = TextView(this).apply { text = "Installed: ${BuildConfig.VERSION_NAME}" }.also(form::addView)
+        val updateButton = Button(this).apply { text = "Check for updates" }.also(form::addView)
+        updateButton.setOnClickListener { checkForUpdate(updateStatus, updateButton) }
         setContentView(ScrollView(this).apply { addView(form) })
         fill(current)
+    }
+
+    // ------------------------------------------------------------------ updates
+
+    private fun checkForUpdate(status: TextView, button: Button) {
+        val repo = current.optString("update_repo").ifBlank { BuildConfig.UPDATE_REPO }
+        val updater = Updater(applicationContext, repo)
+        button.isEnabled = false
+        status.text = "Checking GitHub…"
+        Thread {
+            try {
+                val r = updater.latest()
+                runOnUiThread {
+                    button.isEnabled = true
+                    if (!updater.isNewer(r)) {
+                        status.text = "Up to date: ${BuildConfig.VERSION_NAME} (latest release ${r.tag})"
+                    } else {
+                        status.text = "${r.tag} is available (installed: ${BuildConfig.VERSION_NAME})"
+                        button.text = "Download and install ${r.tag}"
+                        button.setOnClickListener { downloadAndInstall(updater, r, status, button) }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { button.isEnabled = true; status.text = "Check failed: ${e.message}" }
+            }
+        }.start()
+    }
+
+    private fun downloadAndInstall(updater: Updater, r: Updater.Release, status: TextView, button: Button) {
+        if (!updater.canInstall()) {
+            status.text = "Allow \"Install unknown apps\" for G800 Bridge, come back, and tap again."
+            updater.openInstallPermission()
+            return
+        }
+        button.isEnabled = false
+        Thread {
+            try {
+                val apk = updater.download(r) { pct -> runOnUiThread { status.text = "Downloading ${r.tag}… $pct%" } }
+                runOnUiThread {
+                    status.text = "Verified. Confirm the installation; the app restarts by itself."
+                    button.isEnabled = true
+                    updater.install(apk)
+                }
+            } catch (e: Exception) {
+                runOnUiThread { button.isEnabled = true; status.text = "Update failed: ${e.message}" }
+            }
+        }.start()
     }
 
     private fun fill(o: JSONObject) {
@@ -138,6 +192,7 @@ class SettingsActivity : Activity() {
         putIf("settings_pin", pin.text.toString())
         o.put("ha_discovery", ha.isChecked)
         if (current.has("ha_prefix")) o.put("ha_prefix", current.getString("ha_prefix"))
+        if (current.has("update_repo")) o.put("update_repo", current.getString("update_repo"))
 
         try {
             BridgeConfig.save(this, o)

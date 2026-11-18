@@ -25,6 +25,8 @@ android {
         // CI sets these from the git tag: v1.2.3 -> "1.2.3", 10203.
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 400
         versionName = System.getenv("VERSION_NAME") ?: "0.4.0"
+        // "Check for updates" looks here (GitHub owner/repo); config.json "update_repo" overrides it.
+        buildConfigField("String", "UPDATE_REPO", "\"jpfranca-br/gertec-g800-mqtt-printer-bridge\"")
     }
 
     signingConfigs {
